@@ -1,1 +1,9 @@
-AQ.Ab8RN6InRaCaxlFKPTDrbJplPxwgPWQj_a2X_ltUQPLPq2WI0A
+fastapi
+uvicorn
+python-multipart
+opencv-python-headless
+numpy
+pillow
+pytesseract
+google-genai
+python-dotenv
