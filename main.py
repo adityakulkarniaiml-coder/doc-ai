@@ -32,17 +32,24 @@ logger = logging.getLogger("document-scanner")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
-if not GEMINI_API_KEY:
-    raise RuntimeError(
-        "GEMINI_API_KEY is missing. Add it to your .env file."
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+if client is None:
+    logger.warning(
+        "GEMINI_API_KEY is missing. AI summarization is unavailable."
     )
 
-client = genai.Client(api_key=GEMINI_API_KEY)
 
-
-# Tesseract OCR configuration for Windows.
-# Change this path if Tesseract is installed elsewhere.
-TESSERACT_PATH = os.getenv("TESSERACT_PATH") or shutil.which("tesseract")
+# Configure Tesseract with TESSERACT_PATH or add it to PATH.
+DEFAULT_TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+TESSERACT_PATH = (
+    os.getenv("TESSERACT_PATH")
+    or shutil.which("tesseract")
+    or (
+        DEFAULT_TESSERACT_PATH
+        if os.path.isfile(DEFAULT_TESSERACT_PATH)
+        else None
+    )
+)
 
 if TESSERACT_PATH:
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
@@ -218,6 +225,11 @@ def summarize_document(
 
     if not extracted_text or not extracted_text.strip():
         return "No readable text was found in the uploaded document."
+
+    if client is None:
+        raise RuntimeError(
+            "GEMINI_API_KEY is missing. AI summarization is unavailable."
+        )
 
     prompt = f"""
 You are an assistant that analyzes scanned documents.
@@ -540,6 +552,9 @@ async def process_batch(
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    if client is None:
+        return
+
     try:
         client.close()
     except Exception:
