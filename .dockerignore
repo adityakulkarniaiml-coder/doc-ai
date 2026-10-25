@@ -1,0 +1,13 @@
+.env
+.env.*
+.git
+.vscode
+.venv
+venv
+__pycache__
+*.py[cod]
+test_api.py
+node_modules
+frontend/node_modules
+*.pdf
+*.png

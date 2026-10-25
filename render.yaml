@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: doc-ai-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: TESSERACT_PATH
+        value: /usr/bin/tesseract
