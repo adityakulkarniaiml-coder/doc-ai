@@ -1,9 +1,10 @@
 
+import json
 import os
 import logging
 import urllib.parse
 from io import BytesIO
-from typing import List
+from typing import Any, List
 import shutil
 
 import cv2
@@ -85,6 +86,39 @@ app.add_middleware(
 # IMAGE PROCESSING
 # ============================================================
 
+def apply_crop_to_image(image: Image.Image, crop: Any | None = None) -> Image.Image:
+    """Crop an image using a ReactCrop-style crop object."""
+    if not crop or not isinstance(crop, dict):
+        return image
+
+    try:
+        unit = crop.get("unit", "%")
+        x = float(crop.get("x", 0))
+        y = float(crop.get("y", 0))
+        width = float(crop.get("width", 100))
+        height = float(crop.get("height", 100))
+    except (TypeError, ValueError):
+        return image
+
+    if unit == "%":
+        original_width, original_height = image.size
+        left = max(0, x * original_width / 100.0)
+        top = max(0, y * original_height / 100.0)
+        right = min(original_width, (x + width) * original_width / 100.0)
+        bottom = min(original_height, (y + height) * original_height / 100.0)
+    else:
+        original_width, original_height = image.size
+        left = max(0, min(original_width, x))
+        top = max(0, min(original_height, y))
+        right = max(left, min(original_width, x + width))
+        bottom = max(top, min(original_height, y + height))
+
+    if right <= left or bottom <= top:
+        return image
+
+    return image.crop((int(left), int(top), int(right), int(bottom)))
+
+
 def process_image(
     image: Image.Image,
     rotation: int = 0,
@@ -151,6 +185,37 @@ def process_image(
     # Optional noise removal.
     if remove_noise:
         img = cv2.medianBlur(img, 3)
+
+    # Improve faint ink and soften blur without changing page dimensions.
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    luminance, a_channel, b_channel = cv2.split(lab)
+    local_contrast = cv2.createCLAHE(
+        clipLimit=1.5,
+        tileGridSize=(8, 8),
+    ).apply(luminance)
+    enhanced_luminance = cv2.addWeighted(
+        luminance,
+        0.45,
+        local_contrast,
+        0.55,
+        0,
+    )
+    blurred_luminance = cv2.GaussianBlur(
+        enhanced_luminance,
+        (0, 0),
+        0.8,
+    )
+    enhanced_luminance = cv2.addWeighted(
+        enhanced_luminance,
+        1.35,
+        blurred_luminance,
+        -0.35,
+        0,
+    )
+    img = cv2.cvtColor(
+        cv2.merge((enhanced_luminance, a_channel, b_channel)),
+        cv2.COLOR_LAB2BGR,
+    )
 
     # Prepare output according to selected color mode.
     if color_mode == "bw":
@@ -333,6 +398,7 @@ async def process_batch(
     color_mode: str = Form("color"),
     remove_noise: bool = Form(False),
     custom_prompt: str = Form(""),
+    crop_data: str = Form("[]"),
 ):
     """
     Process multiple uploaded images, create a PDF,
@@ -376,6 +442,14 @@ async def process_batch(
     pdf_pages = []
     extracted_text_parts = []
 
+    try:
+        crop_items = json.loads(crop_data or "[]")
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Crop data was not valid JSON.",
+        )
+
     # --------------------------------------------------------
     # PROCESS EACH UPLOADED IMAGE
     # --------------------------------------------------------
@@ -410,23 +484,22 @@ async def process_batch(
                     detail=f"Could not read image {file.filename}.",
                 ) from exc
 
+            crop_item = crop_items[page_number - 1] if page_number - 1 < len(crop_items) else None
+            prepared_image = apply_crop_to_image(pil_image, crop_item)
+
             # Apply selected transformations.
             final_image, ocr_image = process_image(
-                image=pil_image,
+                image=prepared_image,
                 rotation=rotation,
                 compression=compression,
                 color_mode=color_mode,
                 remove_noise=remove_noise,
             )
 
-            # Convert processed image into a PIL image for the PDF.
-            if len(final_image.shape) == 2:
-                pdf_image = Image.fromarray(final_image)
-
-            else:
-                pdf_image = Image.fromarray(final_image)
-
-            pdf_pages.append(pdf_image.convert("RGB"))
+            # Keep single-channel pages in grayscale mode to avoid
+            # introducing color conversion artifacts during PDF encoding.
+            pdf_image = Image.fromarray(final_image)
+            pdf_pages.append(pdf_image)
 
             # Run OCR only when AI analysis is requested.
             if analyze_enabled:
@@ -475,6 +548,8 @@ async def process_batch(
             save_all=True,
             append_images=remaining_pages,
             resolution=150.0,
+            quality=100,
+            subsampling=0,
         )
 
         pdf_bytes = pdf_buffer.getvalue()

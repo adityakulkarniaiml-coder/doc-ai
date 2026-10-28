@@ -1,7 +1,7 @@
 import requests
 
 # Paste your AIza... key here
-API_KEY = "AQ.Ab8RN6JXUFOWWVlpH_qVw7DAhHCHnpaRP9XeDqWaAX7tyKNTTA"
+API_KEY = ""
 
 url = f"https://generativelanguage.googleapis.com/v1beta/models?key={API_KEY}"
 response = requests.get(url)
