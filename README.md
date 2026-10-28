@@ -52,7 +52,7 @@ Python
 Tesseract OCR
 A Google Gemini API key
 1. Clone the repository
-git clone https://github.com/YOUR-USERNAME/doc-ai.git
+git clone https://github.com/adityakulkarniaiml/doc-ai.git
 cd doc-ai
 2. Set up the backend
 Install the Python dependencies listed in requirements.txt, then create a .env file in the backend directory:
